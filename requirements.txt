@@ -1,0 +1,15 @@
+# OpenTransit Python Dependencies
+# Install with: pip install -r requirements.txt
+
+# Database
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.9
+
+# Web server
+aiohttp>=3.9.0
+
+# GTFS
+gtfs-realtime-bindings>=1.0.0
+
+# Utilities
+python-dotenv>=1.0.0

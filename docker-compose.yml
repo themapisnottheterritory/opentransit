@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgis/postgis:15-3.3
+    container_name: opentransit-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-opentransit}
+      POSTGRES_USER: ${POSTGRES_USER:-opentransit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opentransit}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # AVL Server - receives GPS data from vehicles
+  avl:
+    build:
+      context: ./avl
+      dockerfile: Dockerfile
+    container_name: opentransit-avl
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-opentransit}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-opentransit}
+      UDP_PORT: ${AVL_UDP_PORT:-8080}
+    ports:
+      - "${AVL_UDP_PORT:-8080}:8080/udp"
+    volumes:
+      - ./avl:/app
+
+  # GTFS-Realtime Server
+  gtfs-rt:
+    build:
+      context: ./gtfs_rt
+      dockerfile: Dockerfile
+    container_name: opentransit-gtfs-rt
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-opentransit}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-opentransit}
+      GTFS_RT_PORT: ${GTFS_RT_PORT:-8081}
+    ports:
+      - "${GTFS_RT_PORT:-8081}:8081"
+
+  # Web UI / Dashboard (future)
+  # web:
+  #   build:
+  #     context: ./web
+  #     dockerfile: Dockerfile
+  #   container_name: opentransit-web
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - db
+  #   ports:
+  #     - "3000:3000"
+
+  # APC Service (future - requires GPU)
+  # apc:
+  #   build:
+  #     context: ./apc
+  #     dockerfile: Dockerfile
+  #   container_name: opentransit-apc
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - db
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: opentransit-network
