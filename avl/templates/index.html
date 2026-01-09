@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenTransit - Bus Tracker</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        
+        #header {
+            background: #2c3e50;
+            color: white;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        #header h1 {
+            font-size: 1.2em;
+            font-weight: 500;
+        }
+        
+        #status {
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+        
+        #map {
+            height: calc(100vh - 50px);
+            width: 100%;
+        }
+        
+        .bus-icon {
+            background: #3498db;
+            border: 2px solid white;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        
+        .bus-popup {
+            min-width: 150px;
+        }
+        
+        .bus-popup h3 {
+            margin: 0 0 8px 0;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .bus-popup p {
+            margin: 4px 0;
+            font-size: 13px;
+        }
+        
+        .bus-popup .label {
+            color: #666;
+        }
+        
+        .stale {
+            background: #95a5a6 !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <h1>🚌 OpenTransit Bus Tracker</h1>
+        <div id="status">Loading...</div>
+    </div>
+    
+    <div id="map"></div>
+    
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <script>
+        // Configuration
+        const REFRESH_INTERVAL = 5000;  // 5 seconds
+        const CENTER_LAT = 28.8053;     // Victoria, TX
+        const CENTER_LON = -96.9853;
+        const DEFAULT_ZOOM = 12;
+        
+        // Initialize map
+        const map = L.map('map').setView([CENTER_LAT, CENTER_LON], DEFAULT_ZOOM);
+        
+        // Add tile layer (OpenStreetMap)
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        
+        // Store markers
+        const markers = {};
+        
+        // Create custom bus icon
+        function createBusIcon(busId, isStale = false) {
+            return L.divIcon({
+                className: 'bus-marker',
+                html: `<div class="bus-icon ${isStale ? 'stale' : ''}">${busId.slice(-2)}</div>`,
+                iconSize: [30, 30],
+                iconAnchor: [15, 15],
+                popupAnchor: [0, -15]
+            });
+        }
+        
+        // Format timestamp
+        function formatTime(isoString) {
+            if (!isoString) return 'Unknown';
+            const date = new Date(isoString);
+            return date.toLocaleTimeString();
+        }
+        
+        // Check if position is stale (> 2 minutes old)
+        function isStale(isoString) {
+            if (!isoString) return true;
+            const date = new Date(isoString);
+            const now = new Date();
+            return (now - date) > 2 * 60 * 1000;
+        }
+        
+        // Create popup content
+        function createPopupContent(bus) {
+            return `
+                <div class="bus-popup">
+                    <h3>🚌 Bus ${bus.bus_id}</h3>
+                    <p><span class="label">Speed:</span> ${bus.speed ? bus.speed.toFixed(1) : 0} mph</p>
+                    <p><span class="label">Heading:</span> ${bus.heading ? bus.heading.toFixed(0) : 0}°</p>
+                    <p><span class="label">Updated:</span> ${formatTime(bus.updated_at)}</p>
+                    <p><span class="label">Position:</span> ${bus.latitude?.toFixed(5)}, ${bus.longitude?.toFixed(5)}</p>
+                </div>
+            `;
+        }
+        
+        // Update bus locations
+        async function updateLocations() {
+            try {
+                const response = await fetch('/bus_locations');
+                const buses = await response.json();
+                
+                // Track which buses we've seen
+                const seenBuses = new Set();
+                
+                buses.forEach(bus => {
+                    if (!bus.latitude || !bus.longitude) return;
+                    
+                    seenBuses.add(bus.bus_id);
+                    const stale = isStale(bus.updated_at);
+                    
+                    if (markers[bus.bus_id]) {
+                        // Update existing marker
+                        markers[bus.bus_id].setLatLng([bus.latitude, bus.longitude]);
+                        markers[bus.bus_id].setIcon(createBusIcon(bus.bus_id, stale));
+                        markers[bus.bus_id].setPopupContent(createPopupContent(bus));
+                    } else {
+                        // Create new marker
+                        const marker = L.marker([bus.latitude, bus.longitude], {
+                            icon: createBusIcon(bus.bus_id, stale)
+                        }).addTo(map);
+                        
+                        marker.bindPopup(createPopupContent(bus));
+                        markers[bus.bus_id] = marker;
+                    }
+                });
+                
+                // Remove markers for buses no longer reporting
+                Object.keys(markers).forEach(busId => {
+                    if (!seenBuses.has(busId)) {
+                        map.removeLayer(markers[busId]);
+                        delete markers[busId];
+                    }
+                });
+                
+                // Update status
+                document.getElementById('status').textContent = 
+                    `${buses.length} vehicles | Updated ${new Date().toLocaleTimeString()}`;
+                    
+            } catch (error) {
+                console.error('Error fetching bus locations:', error);
+                document.getElementById('status').textContent = 'Error loading data';
+            }
+        }
+        
+        // Initial load
+        updateLocations();
+        
+        // Refresh periodically
+        setInterval(updateLocations, REFRESH_INTERVAL);
+    </script>
+</body>
+</html>

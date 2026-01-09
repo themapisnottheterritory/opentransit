@@ -4,6 +4,7 @@
 
 - [Installation Guide](installation.md)
 - [Quick Start](quickstart.md)
+- [Database](database.md) — Why PostgreSQL, MySQL compatibility notes
 
 ## Modules
 
@@ -25,3 +26,7 @@
 - [API Reference](api.md)
 - [Database Schema](schema.md)
 - [Configuration Reference](config.md)
+
+## Migration
+
+- [MySQL Migration Guide](mysql-migration.md) — For agencies moving from MySQL
